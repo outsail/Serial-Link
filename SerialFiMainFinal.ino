@@ -1,7 +1,7 @@
 /**
  * 
  * Project: SerialLink
- * Date of last update: 2/6/22
+ * Date of last update: 2/23/22
  * 
  */
 
@@ -161,6 +161,7 @@ const char index_html[] PROGMEM = R"(
 void loop() {
   server.handleClient();
   handleTCPProtocol();
+  
 }
 
 /**
@@ -197,10 +198,9 @@ void setup() {
   // Send web page with input fields to client
   server.on("/", handleRoot);
   server.on("/action_page", handleForm);
-  server.on("/reboot", []() {
-    server.send(200, "text/html", "<a href = '/'>Rebooting...</a>");
-    delay(5000);
-    handleRoot();
+  server.on("/reset", []() {
+    server.send(200, "text/html", "<a href = '/'>Resetting...</a>");
+    firstRunFunc();
     ESP.reset();
   });
   
@@ -228,7 +228,7 @@ void readConfig(){
   EEPROM.get(0, value);
   EEPROM.end();
   //check for gibberish baud and correct as needed
-  if(value <= 115200 && !containsSpecialCharacters(longToString(value).c_str()))
+  if(value >= 300 && value <= 115200 && !containsSpecialCharacters(longToString(value).c_str()))
     baudrate = value;
   Serial.end();
   Serial.begin(baudrate);
@@ -315,6 +315,9 @@ void handleTCPProtocol(){
 void firstRunFunc(){
   WiFi.persistent(true);
   WiFi.softAP("SerialLink", "seriallink");
+  baudrate = 115200;
+  writeConfig();
+  
 }
 
 bool initwifi(String ssidin) {
