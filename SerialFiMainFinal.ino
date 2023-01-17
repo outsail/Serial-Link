@@ -1,7 +1,7 @@
 /**
  * 
  * Project: SerialLink
- * Date of last update: 2/23/22
+ * Date of last update: 12/12/22
  * 
  */
 
@@ -15,6 +15,7 @@
 
 #define NAPT 1000
 #define NAPT_PORT 10
+#define MAX_TIMEOUT 100
 
 #ifndef min
 #define min(x,y)  ((x)<(y)?(x):(y))
@@ -33,6 +34,8 @@ ESP8266HTTPUpdateServer httpUpdater;
 const int EEPROM_SIZE = 30;
 
 long baudrate = 115200;
+
+bool tcpmode = false;
 
 
 // function Prototypes
@@ -106,7 +109,7 @@ void handleRoot();
 
 
 //html code for the site
-char html[2300];
+char html[2500];
 const char index_html[] PROGMEM = R"(
 <!DOCTYPE HTML>
 <html>
@@ -150,7 +153,7 @@ const char index_html[] PROGMEM = R"(
   <p><small>Press SAVE ALL to save all changes when finished. baudrate changes will take effect immediately. Wireless settings require a reboot.</small></p>
   <input type="submit" value="SAVE ALL">
   </form>
-  
+  <p>V4.2.1</p>
   </center>
 </body></html>)";
 
@@ -172,9 +175,14 @@ void setup() {
   pinMode(2, OUTPUT);
   digitalWrite(2, LOW);
   //read and set baudrate
+  Serial.setRxBufferSize(2080);
   Serial.begin(baudrate);
   readConfig();
   Serial.println();
+
+  if(WiFi.softAPSSID().indexOf("ESP-") > -1){
+    firstRunFunc();
+  }
 
   //configure and start Station and softAP settings
   WiFi.setPhyMode(WIFI_PHY_MODE_11N);
@@ -231,6 +239,7 @@ void readConfig(){
   if(value >= 300 && value <= 115200 && !containsSpecialCharacters(longToString(value).c_str()))
     baudrate = value;
   Serial.end();
+  Serial.setRxBufferSize(2080);
   Serial.begin(baudrate);
 }
 
@@ -250,9 +259,11 @@ void handleForm(){
     writeConfig();
   
     Serial.end();
+    Serial.setRxBufferSize(2080);
     Serial.begin(baudrate);
   }
  }
+  tcpmode = server.hasArg("tcpbox");
 
   //set new AP values
   String apssid = server.arg("apssid");
@@ -281,29 +292,32 @@ void handleRoot(){
 
 void handleTCPProtocol(){
   WiFiClient client = comServer.available();
-  uint8_t i;
-  uint8_t buf[1024];
-  int bytesAvail, bytesIn;
+  byte buf[2080];
+  int bytesAvail, bytesIn, timeout;
   if (client) {
     if(client.connected())
     {
       digitalWrite(2, LOW);
     }
-    
-    while(client.connected()){      
+    bool clientConnected = client.connected();
+    int ittercounter = 0;
+    while(clientConnected){      
         while((bytesAvail = client.available()) > 0){
-          // read data from the connected client
-          bytesIn = client.readBytes(buf, min(sizeof(buf), bytesAvail));
-          if (bytesIn > 0) {
-            Serial.write(buf, bytesIn);
+          bytesIn = client.readBytes(buf, min(2080, bytesAvail));
+          Serial.write(buf,bytesIn);
+        }
+        while((bytesAvail = Serial.available()) > 0){
+          delay(1);
+          if(bytesAvail == Serial.available()){
+            bytesAvail = Serial.available();
+            bytesIn = Serial.readBytes(buf, min(2080, bytesAvail));
+            client.write(buf, bytesIn);
           }
         }
-        //Send Data to connected client
-        while((bytesAvail = Serial.available()) > 0){
-          bytesIn = Serial.readBytes(buf, min(sizeof(buf), bytesAvail));
-          if (bytesIn > 0) {
-            client.write((uint8_t*)buf, bytesIn);
-          }
+        ittercounter++;
+        if(ittercounter >= 1000000){
+          clientConnected = client.connected();
+          ittercounter = 0;
         }
         
     }
